@@ -1,53 +1,52 @@
 # MyLife: Master Implementation Blueprint (V1.0)
 
-This is the definitive, all-in-one technical guide for MyLife. Use this for project initialization, Firebase configuration, and AI behavioral tuning.
+This is the definitive guide for migrating MyLife to a real production environment.
 
 ---
 
-## 1. Project Foundation & Tech Stack
-- **Framework:** React 19 (via Vite)
-- **Styling:** Tailwind CSS (Fonts: Crimson Pro & Inter)
-- **Animation:** Framer Motion (Neural Mapping & Transitions)
-- **Intelligence:** Google Gemini-3-Flash-Preview (Fast Ingestion) & Pro-Preview (Synthesis)
-- **Database:** Firebase Firestore (Relational / NoSQL hybrid)
-- **Security:** Client-side AES-GCM Heirloom Encryption
+## ⚡ FIREBASE STUDIO HAND-OFF (COPY & PASTE THIS)
+"I am building a Digital Biographer app called MyLife. 
+1. Enable **Firebase Auth** (Google, Apple, and Email/Passcode).
+2. Create a **Firestore Database** in production mode.
+3. Create the following root collection: `/users`.
+4. Create these sub-collections for every user: 
+   - `/users/{uid}/memories`
+   - `/users/{uid}/entities`
+   - `/users/{uid}/eras`
+5. Apply the Security Rules provided in Section 3 of my Blueprint.
+6. Set the Environment Variables: VITE_GEMINI_API_KEY, VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID."
 
 ---
 
-## 2. Installation & Initialization
+## 1. Technical Stack
+- **Framework:** React 19 (Vite)
+- **Database:** Firestore (Real-time Sync + Offline Persistence)
+- **Auth:** Firebase Auth (Identity)
+- **AI:** Google Gemini-3-Flash (Chat) & Gemini-3-Pro (Synthesis)
+- **Encryption:** Client-side AES-GCM (Hardware Accelerated)
+
+---
+
+## 2. Installation & Configuration Order
 
 ### Step 1: Install Dependencies
-Run these commands in your project root:
 ```bash
-# Core UI & Motion
-npm install react react-dom framer-motion lucide-react
-
-# Backend & AI
-npm install firebase @google/genai
-
-# Build Tools & Styling
-npm install -D vite @vitejs/plugin-react tailwindcss postcss autoprefixer typescript @types/react
-npx tailwindcss init -p
+npm install firebase @google/genai framer-motion lucide-react react-dom
 ```
 
-### Step 2: Configure Environment (.env)
-Create a `.env` file and populate it. **Never commit this file.**
+### Step 2: Environment Setup (.env)
 ```env
-VITE_GEMINI_API_KEY=your_key_here
-VITE_FIREBASE_API_KEY=your_key_here
-VITE_FIREBASE_AUTH_DOMAIN=mylife-biographer.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=mylife-biographer
+VITE_GEMINI_API_KEY=your_gemini_key
+VITE_FIREBASE_API_KEY=your_firebase_key
+VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your_project_id
 ```
 
 ---
 
-## 3. Infrastructure & Firebase Config
+## 3. Database & Security
 
-### Authentication
-- Enable Google & Apple OAuth in Firebase Console.
-- Enable Email/Password (Passcode) provider.
-
-### Firestore Security Rules
+### Firestore Security Rules (Strict Privacy)
 ```javascript
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -58,40 +57,36 @@ service cloud.firestore {
 }
 ```
 
-### Data Schema (Collections)
-1. **`/users/{uid}`**: Root profile (birthYear, birthCity, preferredTone).
-2. **`/users/{uid}/memories`**: The narrative ledger. Contains `narrative` (Encrypted), `sortDate`, `entityIds`, and `aiInsight`.
-3. **`/users/{uid}/entities`**: The Fact-Store. Persistent data on people, places, and skills.
-4. **`/users/{uid}/eras`**: Timeline segments (e.g., "The Early Years").
+### Real-Time Data Schema
+1. **`/users/{uid}`**: 
+   - `onboarded`: boolean
+   - `displayName`: string
+   - `preferredTone`: 'concise' | 'elaborate'
+2. **`/users/{uid}/memories`**:
+   - `narrative`: string (ENCRYPTED)
+   - `sortDate`: string (YYYY-MM-DD)
+   - `entityIds`: array
+   - `sentiment`: string
+3. **`/users/{uid}/entities`**:
+   - `name`: string
+   - `type`: 'PERSON'|'PLACE'|'OBJECT'
+   - `relationship`: string
 
 ---
 
-## 4. Intelligence Engine (The AI Rules)
+## 4. AI Ingestion Rules (The "Secret Sauce")
 
-### I. The Splitter Rule (Multi-Event Parsing)
-The AI must identify if a user input contains multiple life events and split them into individual memory documents. 
-- *Input:* "I met Sarah in 1990 and we moved to London in 1995."
-- *Output:* Memory A (Meeting Sarah, 1990), Memory B (Moving to London, 1995).
+### The Splitter Rule
+If a user provides a long story, the AI MUST split it into individual `memory` documents.
+- *Input:* "I married June in 1970 then moved to Paris in 1975."
+- *Action:* Create Memory A (Marriage) and Memory B (Moving).
 
-### II. The User-Centric Rule (MANDATORY)
-The AI must never pivot the biography to a relative. 
-- *Rule:* If the user mentions their father, do not ask about the father's life. Ask how the father's presence impacted the **user**.
-
-### III. Direct vs. Warm Tone
-- **Concise (Direct):** No conversational filler. Max 2 sentences. Focus on fact capture.
-- **Elaborate (Warm):** Empathetic acknowledgement followed by a deep-dive prompt.
+### The User-Centric Rule
+Always keep the spotlight on the User. If they mention their grandfather's career, ask how that grandfather's career influenced the **User's** worldview.
 
 ---
 
-## 5. Heirloom Encryption Logic
-To ensure 100% privacy, the `narrative` and `originalInput` fields are encrypted client-side using **WebCrypto API (AES-GCM)** before being sent to Firebase.
-- The `uid` (or a derived hash) acts as the derivation salt.
-- Server-side indexing is performed on `sortDate` and `entityIds`, which remain unencrypted for mapping purposes.
-
----
-
-## 6. Execution Checklist (Dos & Don'ts)
-- **DO** verify `onboarded` status immediately after login to prevent UI resets.
-- **DO** use Gemini-3-Flash for chat (low latency) and Gemini-3-Pro for "Life Book" assembly (high reasoning).
-- **DON'T** ask questions about historical facts the AI can look up (use Grounding instead).
-- **DON'T** store the plain-text secret key in LocalStorage; store only the Hashed UID.
+## 5. Deployment Dos & Don'ts
+- **DO** enable `IndexedDB Persistence` for offline mobile use.
+- **DO** verify the user's `onboarded` status on every session start.
+- **DON'T** store the plain-text encryption key in Firestore; only use the derived UID hash for client-side decryption.

@@ -6,8 +6,10 @@ import {
   doc, 
   setDoc, 
   getDoc,
-  updateDoc,
-  enableIndexedDbPersistence
+  getDocs,
+  enableIndexedDbPersistence,
+  query,
+  orderBy
 } from 'firebase/firestore';
 import { 
   getAuth, 
@@ -20,10 +22,11 @@ import {
 import { Memory, Entity, Era, UserProfile, LifeStory } from '../types';
 import { encryptNarrative, decryptNarrative } from './crypto';
 
+// Configuration looks for Vite environment variables first
 const firebaseConfig = {
-  apiKey: process.env.API_KEY, 
-  authDomain: "mylife-biographer.firebaseapp.com",
-  projectId: "mylife-biographer",
+  apiKey: (import.meta as any).env?.VITE_FIREBASE_API_KEY || process.env.API_KEY,
+  authDomain: (import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN || "mylife-biographer.firebaseapp.com",
+  projectId: (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || "mylife-biographer",
 };
 
 let app: any;
@@ -35,47 +38,37 @@ try {
     app = initializeApp(firebaseConfig);
     db = getFirestore(app);
     auth = getAuth(app);
-    // Offline persistence for better mobile experience
-    enableIndexedDbPersistence(db).catch(() => {});
+    // Enable offline persistence for high-end mobile experience
+    enableIndexedDbPersistence(db).catch((err) => {
+      if (err.code === 'failed-precondition') {
+        console.warn("Multiple tabs open; persistence enabled in only one.");
+      } else if (err.code === 'unimplemented') {
+        console.warn("Browser doesn't support persistence.");
+      }
+    });
   }
 } catch (e) {
-  console.warn("Firebase restricted. Using Vault mode.");
+  console.error("Firebase Initialization Failed. Check VITE_ environment variables.", e);
 }
 
-export { auth };
-
-let authCallback: ((user: any | null) => void) | null = null;
-
-function handleAuthError(error: any, method: string) {
-  console.error("Auth Error:", error);
-  return new Error("Social login is unavailable in this sandbox. Use 'Private Passcode'—it works instantly.");
-}
+export { auth, db };
 
 export async function loginWithGoogle() {
-  if (!auth) throw new Error("Sandbox mode: Use Passcode.");
+  if (!auth) throw new Error("Firebase Auth is not configured.");
   const provider = new GoogleAuthProvider();
-  try {
-    const result = await signInWithPopup(auth, provider);
-    if (authCallback) authCallback(result.user);
-    return result.user;
-  } catch (error: any) {
-    throw handleAuthError(error, "Google");
-  }
+  const result = await signInWithPopup(auth, provider);
+  return result.user;
 }
 
 export async function loginWithApple() {
-  if (!auth) throw new Error("Sandbox mode: Use Passcode.");
+  if (!auth) throw new Error("Firebase Auth is not configured.");
   const provider = new OAuthProvider('apple.com');
-  try {
-    const result = await signInWithPopup(auth, provider);
-    if (authCallback) authCallback(result.user);
-    return result.user;
-  } catch (error: any) {
-    throw handleAuthError(error, "Apple");
-  }
+  const result = await signInWithPopup(auth, provider);
+  return result.user;
 }
 
 export async function loginWithPasscode(secret: string, type: 'email' | 'passcode') {
+  // Passcode logic creates a deterministic, secure UID for the "Vault"
   const normalized = secret.toLowerCase().trim();
   const encoder = new TextEncoder();
   const data = encoder.encode(normalized + "mylife-v4-final-salt");
@@ -85,51 +78,37 @@ export async function loginWithPasscode(secret: string, type: 'email' | 'passcod
 
   const uid = `vault_${hashedUid}`;
   
-  // Hydrate immediately to prevent resets
-  const savedProfileStr = localStorage.getItem(`mylife_profile_${uid}`);
-  const profileData = savedProfileStr ? JSON.parse(savedProfileStr) : null;
-
   const mockUser = {
     uid: uid,
     email: type === 'email' ? normalized : `private@vault.local`,
-    displayName: profileData?.displayName || (type === 'email' ? normalized.split('@')[0] : "Legacy Keeper"),
-    onboarded: profileData?.onboarded === true,
-    birthYear: profileData?.birthYear || 1974,
-    birthCity: profileData?.birthCity || '',
-    preferredTone: profileData?.preferredTone || 'concise'
+    displayName: "Legacy Keeper",
+    onboarded: false,
+    birthYear: 1974,
+    birthCity: '',
+    preferredTone: 'concise'
   };
   
   localStorage.setItem('mylife_active_user', JSON.stringify(mockUser));
-  if (authCallback) authCallback(mockUser);
   return mockUser;
 }
 
 export async function logoutUser() {
-  if (auth) { try { await signOut(auth); } catch (e) {} }
+  if (auth) await signOut(auth);
   localStorage.removeItem('mylife_active_user');
-  if (authCallback) authCallback(null);
 }
 
 export function watchAuthState(callback: (user: any | null) => void) {
-  authCallback = callback;
-  const local = localStorage.getItem('mylife_active_user');
-  if (local) {
-    const parsed = JSON.parse(local);
-    const savedProfileStr = localStorage.getItem(`mylife_profile_${parsed.uid}`);
-    if (savedProfileStr) {
-      callback({ ...parsed, ...JSON.parse(savedProfileStr) });
-    } else {
-      callback(parsed);
-    }
-  } else if (auth) {
-    onAuthStateChanged(auth, (fbUser) => {
-      if (fbUser) callback(fbUser);
-      else callback(null);
+  if (auth) {
+    return onAuthStateChanged(auth, (fbUser) => {
+      if (fbUser) {
+        callback(fbUser);
+      } else {
+        const local = localStorage.getItem('mylife_active_user');
+        callback(local ? JSON.parse(local) : null);
+      }
     });
-  } else {
-    callback(null);
   }
-  return () => { authCallback = null; };
+  return () => {};
 }
 
 export class VaultDB {
@@ -142,65 +121,90 @@ export class VaultDB {
   }
 
   async getMemories(): Promise<Memory[]> {
-    const local = this.getLocal('memories');
-    return await Promise.all(local.map(async (m: any) => {
+    if (this.isCloud) {
       try {
-        const decrypted = await decryptNarrative(m.narrative, this.uid);
-        return { ...m, narrative: decrypted };
+        const q = query(collection(db, 'users', this.uid, 'memories'), orderBy('sortDate'));
+        const snap = await getDocs(q);
+        const cloudData = await Promise.all(snap.docs.map(async doc => {
+          const m = doc.data() as Memory;
+          const decrypted = await decryptNarrative(m.narrative, this.uid);
+          // Fixed: Cast to any to avoid "Spread types may only be created from object types" error
+          return { ...(m as any), id: doc.id, narrative: decrypted };
+        }));
+        return cloudData;
       } catch (e) {
-        return m;
+        console.error("Cloud Fetch Failed, falling back to local:", e);
       }
+    }
+    const local = JSON.parse(localStorage.getItem(`mylife_${this.uid}_memories`) || '[]');
+    return await Promise.all(local.map(async (m: any) => {
+      const decrypted = await decryptNarrative(m.narrative, this.uid);
+      // Fixed: Cast to any to avoid "Spread types may only be created from object types" error
+      return { ...(m as any), narrative: decrypted };
     }));
   }
 
   async saveMemories(data: Memory[]) {
     const encrypted = await Promise.all(data.map(async m => ({
-      ...m,
+      // Fixed: Cast to any to avoid "Spread types may only be created from object types" error
+      ...(m as any),
       narrative: await encryptNarrative(m.narrative, this.uid)
     })));
-    this.setLocal('memories', encrypted);
-    if (this.isCloud) await this.syncToCloud('memories', encrypted);
+    
+    localStorage.setItem(`mylife_${this.uid}_memories`, JSON.stringify(encrypted));
+
+    if (this.isCloud) {
+      for (const m of encrypted) {
+        await setDoc(doc(db, 'users', this.uid, 'memories', m.id), m, { merge: true });
+      }
+    }
   }
 
-  private getLocal(key: string) {
-    const data = localStorage.getItem(`mylife_${this.uid}_${key}`);
-    return data ? JSON.parse(data) : [];
+  async getEntities(): Promise<Entity[]> {
+    if (this.isCloud) {
+      const snap = await getDocs(collection(db, 'users', this.uid, 'entities'));
+      // Fixed: Cast to any to avoid "Spread types may only be created from object types" error
+      return snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as Entity));
+    }
+    return JSON.parse(localStorage.getItem(`mylife_${this.uid}_entities`) || '[]');
   }
 
-  private setLocal(key: string, data: any) {
-    localStorage.setItem(`mylife_${this.uid}_${key}`, JSON.stringify(data));
+  async saveEntities(data: Entity[]) {
+    localStorage.setItem(`mylife_${this.uid}_entities`, JSON.stringify(data));
+    if (this.isCloud) {
+      for (const e of data) {
+        await setDoc(doc(db, 'users', this.uid, 'entities', e.id), e, { merge: true });
+      }
+    }
   }
 
-  private async syncToCloud(collectionName: string, data: any) {
-    if (!this.isCloud) return;
-    try {
-      const userRef = doc(db, 'users', this.uid);
-      const collRef = doc(db, 'users', this.uid, 'collections', collectionName);
-      await setDoc(collRef, { data, updatedAt: Date.now() }, { merge: true });
-    } catch (e) {}
+  async getEras(): Promise<Era[]> {
+    if (this.isCloud) {
+      const snap = await getDocs(collection(db, 'users', this.uid, 'eras'));
+      // Fixed: Cast to any to avoid "Spread types may only be created from object types" error
+      return snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as Era));
+    }
+    return JSON.parse(localStorage.getItem(`mylife_${this.uid}_eras`) || '[]');
   }
 
-  async getEntities(): Promise<Entity[]> { return this.getLocal('entities'); }
-  async saveEntities(data: Entity[]) { 
-    this.setLocal('entities', data); 
-    if (this.isCloud) await this.syncToCloud('entities', data);
-  }
-
-  async getEras(): Promise<Era[]> { return this.getLocal('eras'); }
-  async saveEras(data: Era[]) { 
-    this.setLocal('eras', data); 
-    if (this.isCloud) await this.syncToCloud('eras', data);
+  async saveEras(data: Era[]) {
+    localStorage.setItem(`mylife_${this.uid}_eras`, JSON.stringify(data));
+    if (this.isCloud) {
+      for (const era of data) {
+        await setDoc(doc(db, 'users', this.uid, 'eras', era.id), era, { merge: true });
+      }
+    }
   }
 
   async syncStory(story: LifeStory) {
     await this.saveMemories(story.memories);
     await this.saveEntities(story.entities);
     await this.saveEras(story.eras);
+    
     if (story.profile) {
       localStorage.setItem(`mylife_profile_${this.uid}`, JSON.stringify(story.profile));
       if (this.isCloud) {
-         const userRef = doc(db, 'users', this.uid);
-         await setDoc(userRef, { ...story.profile, lastUpdated: Date.now() }, { merge: true });
+        await setDoc(doc(db, 'users', this.uid), story.profile, { merge: true });
       }
     }
     localStorage.setItem(`mylife_chat_${this.uid}`, JSON.stringify(story.chatHistory));
