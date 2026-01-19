@@ -1,261 +1,311 @@
 
-
-
-import { useState, useEffect } from 'react';
-import { LifeStory, Memory, Entity, Era, EntityType, UserProfile, ChatMessage, PendingMemory, DraftMemory, GroundingSource, EraCategory, ProposedEntity } from '../types';
+import { useState, useEffect, useMemo } from 'react';
+import { LifeStory, Memory, Entity, Era, UserProfile, ChatMessage, PendingMemory, DraftMemory, GroundingSource, ProposedEntity, EntityType } from '../types';
 import { INITIAL_LIFE_STORY } from '../constants';
 import { parseMemories, analyzeMedia } from '../services/biographer';
-
-const STORAGE_KEY_PREFIX = 'mylife_story_';
+import { VaultDB, loginWithGoogle, logoutUser, watchAuthState } from '../services/db';
 
 export function useLifeStory() {
-  const [user, setUser] = useState<UserProfile | null>(() => {
-    const savedUser = localStorage.getItem('mylife_active_user');
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   
   const [currentInvestigation, setCurrentInvestigation] = useState<string | null>(null);
-  
-  const [story, setStory] = useState<LifeStory>(() => {
-    if (user) {
-      const savedStory = localStorage.getItem(`${STORAGE_KEY_PREFIX}${user.uid}`);
-      return savedStory ? JSON.parse(savedStory) : INITIAL_LIFE_STORY;
-    }
-    return INITIAL_LIFE_STORY;
-  });
+  const vault = useMemo(() => user ? new VaultDB(user.uid) : null, [user]);
 
+  const [story, setStory] = useState<LifeStory>(INITIAL_LIFE_STORY);
+
+  // Sync Auth State
   useEffect(() => {
-    if (user) {
-      localStorage.setItem('mylife_active_user', JSON.stringify(user));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}${user.uid}`, JSON.stringify(story));
+    return watchAuthState((fbUser) => {
+      if (fbUser) {
+        const savedProfile = localStorage.getItem(`mylife_profile_${fbUser.uid}`);
+        const profileData = savedProfile ? JSON.parse(savedProfile) : null;
+
+        setUser({
+          uid: fbUser.uid,
+          email: fbUser.email,
+          displayName: fbUser.displayName || profileData?.displayName || null,
+          birthYear: profileData?.birthYear || 1974,
+          birthCity: profileData?.birthCity || '',
+          onboarded: profileData?.onboarded || false
+        });
+      } else {
+        setUser(null);
+        setStory(INITIAL_LIFE_STORY);
+      }
+      setAuthLoading(false);
+    });
+  }, []);
+
+  // Initial Sync from Firestore
+  useEffect(() => {
+    async function loadData() {
+      if (user && vault) {
+        const chat = localStorage.getItem(`mylife_chat_${user.uid}`);
+        
+        const memories = await vault.getMemories();
+        const entities = await vault.getEntities();
+        const eras = await vault.getEras();
+
+        setStory(prev => ({
+          ...prev,
+          profile: user,
+          chatHistory: chat ? JSON.parse(chat) : INITIAL_LIFE_STORY.chatHistory,
+          memories,
+          entities,
+          eras
+        }));
+      }
     }
-  }, [story, user]);
+    loadData();
+  }, [user, vault]);
 
-  const login = (method: string) => {
-    const mockUid = 'demo_user_alpha';
-    const savedStory = localStorage.getItem(`${STORAGE_KEY_PREFIX}${mockUid}`);
-    if (savedStory) {
-      const parsedStory = JSON.parse(savedStory) as LifeStory;
-      setUser(parsedStory.profile);
-      setStory(parsedStory);
-    } else {
-      const mockUser: UserProfile = { uid: mockUid, email: 'demo@mylife.ai', displayName: null, birthYear: 1974, birthCity: '', onboarded: false };
-      setUser(mockUser);
-      setStory({ ...INITIAL_LIFE_STORY, profile: mockUser });
+  // Background Sync to Vault
+  useEffect(() => {
+    if (user && vault) {
+      vault.syncStory(story);
     }
-  };
+  }, [story, user, vault]);
 
-  const logout = () => {
-    localStorage.removeItem('mylife_active_user');
-    setUser(null);
-    setStory(INITIAL_LIFE_STORY);
-  };
-
-  const updateProfile = async (name: string, dob: string, location: string) => {
-    const year = parseInt(dob.split('-')[0]) || 1974;
-    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    const monthIndex = parseInt(dob.split('-')[1]) - 1;
-    const month = monthNames[monthIndex] || "";
+  // Gap Detector: Finds periods with no memories
+  const timelineGaps = useMemo(() => {
+    if (story.memories.length < 2) return [];
+    const years = story.memories.map(m => {
+      const match = m.sortDate.match(/\d{4}/);
+      return match ? parseInt(match[0]) : NaN;
+    }).filter(y => !isNaN(y)).sort();
     
-    const newProfile = { ...user!, displayName: name, birthYear: year, birthCity: location, onboarded: true };
-    const newEras: Era[] = [
-      { id: 'era_origin', label: 'Early Years', category: 'personal', startYear: year, endYear: year + 18, colorTheme: 'personal' },
-      { id: 'era_location_origin', label: `Life in ${location}`, category: 'location', startYear: year, endYear: 'present', colorTheme: 'location' }
-    ];
-    setUser(newProfile);
-    setCurrentInvestigation("Opening the book");
+    if (years.length === 0) return [story.profile?.birthYear ? story.profile.birthYear + 18 : 1990];
+    
+    const gaps = [];
+    for (let i = 0; i < years.length - 1; i++) {
+      if (years[i+1] - years[i] > 5) {
+        gaps.push(Math.floor((years[i] + years[i+1]) / 2));
+      }
+    }
+    return gaps;
+  }, [story.memories, story.profile]);
 
-    const initialProposal: DraftMemory = { 
-      narrative: `Born in ${location}.`, 
-      sortDate: dob, 
-      location: location, 
-      sentiment: 'neutral', 
-      suggestedEraCategories: ['personal', 'location'] 
-    };
+  const generateId = () => crypto.randomUUID();
 
-    const firstMessage = `I see you were born in ${month} ${year}, that is great. \n\nDo you want to tell me a bit about your parents or siblings? \n\nIf not, just start entering any story, adventure, trip, work, or anything relevant to your life—your love life, kids, whatever comes to mind. I'm listening.`;
-
-    setStory(prev => ({ 
-      ...prev, 
-      profile: newProfile, 
-      eras: newEras, 
-      chatHistory: [{
-        id: 'welcome_origin', 
-        role: 'biographer', 
-        text: firstMessage, 
-        timestamp: Date.now(), 
-        proposals: [initialProposal]
-      }] 
-    }));
+  const requestNudge = async () => {
+    if (!user || !story.profile) return;
+    const gapYear = timelineGaps.length > 0 ? timelineGaps[0] : story.profile.birthYear + 20;
+    
+    const nudgeInput = `I'm reflecting on the year ${gapYear}. Can you tell me what was happening then and ask me a question to jog my memory?`;
+    await processMemoryFromInput(nudgeInput);
   };
 
-  // Fixed proposedEntities parameter to use ProposedEntity type
-  const addChatMessage = (text: string, role: 'user' | 'biographer', proposals?: DraftMemory[], proposedEntities?: ProposedEntity[], attachment?: ChatMessage['attachment'], sources?: GroundingSource[]) => {
-    const newMessage: ChatMessage = { id: Math.random().toString(36).substr(2, 9), role, text, timestamp: Date.now(), attachment, proposals, proposedEntities, sources };
-    setStory(prev => ({ ...prev, chatHistory: [...prev.chatHistory, newMessage] }));
-    return newMessage;
+  const login = async (method: 'google' | 'email') => {
+    if (method === 'google') {
+      try {
+        await loginWithGoogle();
+      } catch (err) {
+        console.error("Login failed", err);
+      }
+    } else {
+      alert("Email Magic Link requested. (Demo: Use Google for instant access)");
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await logoutUser();
+    } catch (err) {
+      console.error("Logout failed", err);
+    }
+  };
+
+  const updateProfile = async (name: string, dob: string, location: string, chapters: string[]) => {
+    const year = parseInt(dob.split('-')[0]) || 1974;
+    const newProfile = { ...user!, displayName: name, birthYear: year, birthCity: location, onboarded: true };
+    
+    const newEras: Era[] = [
+      { id: generateId(), label: 'Childhood', category: 'personal', startYear: year, endYear: year + 13, colorTheme: 'personal' },
+      ...chapters.map((chapter, idx) => ({
+        id: generateId(),
+        label: chapter,
+        category: (idx % 2 === 0 ? 'professional' : 'location') as any,
+        startYear: year + 15 + (idx * 5),
+        endYear: idx === chapters.length - 1 ? 'present' as const : year + 20 + (idx * 5),
+        colorTheme: 'professional'
+      }))
+    ];
+
+    setUser(newProfile);
+    setStory(prev => ({ ...prev, profile: newProfile, eras: newEras }));
   };
 
   const processMemoryFromInput = async (input: string) => {
     if (!user || !story.profile) return;
-    addChatMessage(input, 'user');
     
-    // Include entities in the "Facts" for better cross-referencing
-    const entityFacts = story.entities.map(e => `[Entity: ${e.name} (${e.type}) details: ${e.historyTags.join(', ')}]`).join('\n');
-    const memoryFacts = story.memories.map(m => `[${m.sortDate}: ${m.narrative}]`).join('\n');
-    const existingFacts = `${entityFacts}\n${memoryFacts}`;
-    
-    let latLng = undefined;
-    try {
-      const pos = await new Promise<GeolocationPosition>((res, rej) => navigator.geolocation.getCurrentPosition(res, rej));
-      latLng = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-    } catch (e) {
-      console.warn("Location context unavailable.");
-    }
+    const newMessage: ChatMessage = { id: generateId(), role: 'user', text: input, timestamp: Date.now() };
+    setStory(prev => ({ ...prev, chatHistory: [...prev.chatHistory, newMessage] }));
+
+    // Prepare "Fact Store" for the AI
+    const entityFacts = story.entities.map(e => `[${e.type}: ${e.name} - ${e.historyTags.join(', ')}]`).join('\n');
+    const recentMemories = story.memories.slice(-5).map(m => `[${m.sortDate}]: ${m.narrative}`).join('\n');
+    const existingFacts = `KNOWN ENTITIES:\n${entityFacts}\n\nRECENT MEMORIES:\n${recentMemories}`;
 
     const result = await parseMemories(input, { 
       eras: story.eras, 
       birthYear: story.profile.birthYear, 
       existingFacts, 
-      chatHistory: story.chatHistory,
-      latLng
+      chatHistory: story.chatHistory, 
+      gaps: timelineGaps
     });
 
-    addChatMessage(result.biographerFeedback, 'biographer', result.proposals, result.proposedEntities, undefined, result.sources);
+    const bioMessage: ChatMessage = { 
+      id: generateId(), 
+      role: 'biographer', 
+      text: result.biographerFeedback, 
+      timestamp: Date.now(), 
+      proposals: result.proposals, 
+      proposedEntities: result.proposedEntities, 
+      sources: result.sources 
+    };
+    
+    setStory(prev => ({ ...prev, chatHistory: [...prev.chatHistory, bioMessage] }));
     setCurrentInvestigation(result.currentInvestigationTopic);
   };
 
+  const confirmDraftMemory = async (messageId: string, draft: DraftMemory) => {
+    const rawYear = draft.sortDate.match(/\d{4}/)?.[0];
+    const year = parseInt(rawYear || "") || story.profile!.birthYear;
+    const eraIds = story.eras.filter(e => year >= e.startYear && (e.endYear === 'present' || year <= (e.endYear as number))).map(e => e.id);
+    
+    // Automatically link existing entities mentioned in the narrative
+    const linkedEntityIds = story.entities
+      .filter(ent => draft.narrative.toLowerCase().includes(ent.name.toLowerCase()))
+      .map(ent => ent.id);
+
+    const newMem: Memory = { 
+      id: generateId(), 
+      userId: user!.uid, 
+      narrative: draft.narrative,
+      originalInput: 'Conversation', 
+      sortDate: draft.sortDate, 
+      confidenceScore: 1, 
+      entityIds: linkedEntityIds, 
+      eraIds, 
+      sentiment: draft.sentiment 
+    };
+    
+    setStory(prev => ({ 
+      ...prev, 
+      memories: [...prev.memories, newMem],
+      chatHistory: prev.chatHistory.map(m => m.id === messageId ? { 
+        ...m, 
+        proposals: m.proposals?.filter(p => p.narrative !== draft.narrative) 
+      } : m)
+    }));
+  };
+
+  const confirmProposedEntity = (messageId: string, ent: ProposedEntity) => {
+    setStory(prev => {
+      const existingIdx = prev.entities.findIndex(e => e.name.toLowerCase() === ent.name?.toLowerCase());
+      
+      if (existingIdx !== -1) {
+        // Update existing entity with new facts
+        const updated = [...prev.entities];
+        if (ent.details && !updated[existingIdx].historyTags.includes(ent.details)) {
+          updated[existingIdx].historyTags.push(ent.details);
+        }
+        return { 
+          ...prev, 
+          entities: updated, 
+          chatHistory: prev.chatHistory.map(m => m.id === messageId ? { 
+            ...m, 
+            proposedEntities: m.proposedEntities?.filter(e => e.name !== ent.name) 
+          } : m) 
+        };
+      }
+      
+      // Create new entity
+      const newEnt: Entity = { 
+        id: generateId(), 
+        userId: user!.uid, 
+        name: ent.name!, 
+        type: (ent.type as unknown as EntityType) || EntityType.PERSON, 
+        historyTags: ent.details ? [ent.details] : [] 
+      };
+      
+      return { 
+        ...prev, 
+        entities: [...prev.entities, newEnt], 
+        chatHistory: prev.chatHistory.map(m => m.id === messageId ? { 
+          ...m, 
+          proposedEntities: m.proposedEntities?.filter(e => e.name !== ent.name) 
+        } : m) 
+      };
+    });
+  };
+
   const handleMediaUpload = async (file: File) => {
-    if (!user || !story.profile) return;
     const reader = new FileReader();
     reader.onload = async (e) => {
-      const base64Data = (e.target?.result as string).split(',')[1];
-      const attachment: ChatMessage['attachment'] = { type: file.type.startsWith('image/') ? 'image' : (file.type.includes('pdf') ? 'pdf' : 'audio'), url: URL.createObjectURL(file) };
-      addChatMessage(`Attached artifact: ${file.name}`, 'user', undefined, undefined, attachment);
-      const analysis = await analyzeMedia(base64Data, file.type, { birthYear: story.profile!.birthYear, existingFacts: story.memories.map(m => m.narrative).join(' ') });
-      const pending: PendingMemory = { id: Math.random().toString(36).substr(2, 9), mediaUrl: attachment.url, mediaType: attachment.type as any, analysis: analysis.analysis, suggestedData: { narrative: analysis.narrative, sortDate: analysis.suggestedYear || 'Unknown', location: analysis.suggestedLocation, eventAnchor: analysis.suggestedEventAnchor } };
-      setStory(prev => ({ ...prev, pendingMemories: [...prev.pendingMemories, pending] }));
-      addChatMessage(analysis.biographerCuriosity, 'biographer');
+      const base64Full = e.target?.result as string;
+      const base64Data = base64Full.split(',')[1];
+      const attachment: ChatMessage['attachment'] = { 
+        type: file.type.startsWith('image/') ? 'image' : 'pdf', 
+        url: base64Full 
+      };
+      
+      const userMsg: ChatMessage = { 
+        id: generateId(), 
+        role: 'user', 
+        text: `Shared an artifact: ${file.name}`, 
+        timestamp: Date.now(), 
+        attachment 
+      };
+      setStory(prev => ({ ...prev, chatHistory: [...prev.chatHistory, userMsg] }));
+      
+      const res = await analyzeMedia(base64Data, file.type, { 
+        birthYear: story.profile!.birthYear, 
+        existingFacts: story.entities.map(e => e.name).join(', ') 
+      });
+      
+      const pm: PendingMemory = { 
+        id: generateId(), 
+        mediaUrl: base64Full, 
+        mediaType: attachment.type as any, 
+        analysis: res.analysis, 
+        suggestedData: res 
+      };
+      setStory(prev => ({ ...prev, pendingMemories: [...prev.pendingMemories, pm] }));
     };
     reader.readAsDataURL(file);
   };
 
   const confirmPendingMemory = (id: string) => {
     setStory(prev => {
-      const pm = prev.pendingMemories.find(p => p.id === id);
+      const pm = prev.pendingMemories.find(m => m.id === id);
       if (!pm) return prev;
-      const year = parseInt((pm.suggestedData.sortDate || '').split('-')[0]);
-      const matchedEras = prev.eras.filter(e => year >= e.startYear && (e.endYear === 'present' || year <= e.endYear));
-      const newMemory: Memory = { 
-        id: Math.random().toString(36).substr(2, 9), 
-        userId: user?.uid || 'anonymous', 
-        narrative: pm.suggestedData.narrative || 'Artifact Record', 
-        originalInput: 'Upload', 
-        sortDate: pm.suggestedData.sortDate || 'Unknown', 
-        location: pm.suggestedData.location, 
-        confidenceScore: 0.9, 
+      
+      const yearStr = pm.suggestedData.suggestedYear || "";
+      const yearMatch = yearStr.match(/\d{4}/);
+      const year = yearMatch ? parseInt(yearMatch[0]) : prev.profile!.birthYear;
+      
+      const eraIds = prev.eras.filter(e => year >= e.startYear && (e.endYear === 'present' || year <= (e.endYear as number))).map(e => e.id);
+      
+      const newMem: Memory = { 
+        id: generateId(), 
+        userId: user!.uid, 
+        narrative: pm.suggestedData.narrative || '', 
+        originalInput: 'Artifact', 
+        sortDate: yearStr || `${year}`, 
+        confidenceScore: 1, 
         entityIds: [], 
-        eraIds: matchedEras.map(e => e.id), 
+        eraIds, 
         sentiment: 'neutral', 
         mediaUrl: pm.mediaUrl, 
-        mediaType: pm.mediaType, 
-        eventAnchor: pm.suggestedData.eventAnchor 
+        mediaType: pm.mediaType
       };
-      return { ...prev, memories: [...prev.memories, newMemory], pendingMemories: prev.pendingMemories.filter(p => p.id !== id) };
-    });
-  };
-
-  const confirmDraftMemory = (messageId: string, draft: DraftMemory) => {
-    const year = parseInt(draft.sortDate.split('-')[0]);
-    
-    setStory(prev => {
-      let currentEras = [...prev.eras];
-      
-      if (draft.suggestedEraCategories) {
-        draft.suggestedEraCategories.forEach(cat => {
-          const existingPresentIdx = currentEras.findIndex(e => e.category === cat && e.endYear === 'present');
-          
-          if (existingPresentIdx !== -1) {
-            const existing = currentEras[existingPresentIdx];
-            if (existing.label === (draft.location ? `Life in ${draft.location}` : `New ${cat} Era`) && existing.startYear === year) {
-              return;
-            }
-            currentEras[existingPresentIdx] = { ...existing, endYear: year };
-          }
-
-          const newEra: Era = { 
-            id: `era_${Math.random().toString(36).substr(2, 5)}`, 
-            label: draft.location ? `Life in ${draft.location}` : `New ${cat} Era`, 
-            category: cat, 
-            startYear: year, 
-            endYear: 'present', 
-            colorTheme: cat 
-          };
-          currentEras.push(newEra);
-        });
-      }
-
-      const matchedEraIds = currentEras.filter(e => year >= e.startYear && (e.endYear === 'present' || year <= e.endYear)).map(e => e.id);
-      
-      const newMemory: Memory = { 
-        id: Math.random().toString(36).substr(2, 9), 
-        userId: user?.uid || 'anonymous', 
-        narrative: draft.narrative, 
-        originalInput: 'Conversation', 
-        sortDate: draft.sortDate, 
-        location: draft.location, 
-        confidenceScore: 1.0, 
-        entityIds: [], 
-        eraIds: matchedEraIds, 
-        sentiment: draft.sentiment || 'neutral', 
-        eventAnchor: draft.suggestedEventAnchor 
-      };
-
       return { 
         ...prev, 
-        memories: [...prev.memories, newMemory], 
-        eras: currentEras,
-        chatHistory: prev.chatHistory.map(m => m.id === messageId ? { ...m, proposals: m.proposals?.filter(p => p !== draft) } : m) 
+        memories: [...prev.memories, newMem], 
+        pendingMemories: prev.pendingMemories.filter(m => m.id !== id) 
       };
-    });
-  };
-
-  // Fixed entityDraft parameter to use ProposedEntity type
-  const confirmProposedEntity = (messageId: string, entityDraft: ProposedEntity) => {
-    setStory(prev => {
-      const existingIdx = prev.entities.findIndex(e => e.name.toLowerCase() === entityDraft.name?.toLowerCase());
-      
-      if (existingIdx !== -1) {
-        // Enrich existing entity
-        const existing = prev.entities[existingIdx];
-        const updatedTags = [...existing.historyTags];
-        if (entityDraft.details && !updatedTags.includes(entityDraft.details)) {
-          updatedTags.push(entityDraft.details);
-        }
-        
-        const updatedEntities = [...prev.entities];
-        updatedEntities[existingIdx] = { ...existing, historyTags: updatedTags };
-        
-        return {
-          ...prev,
-          entities: updatedEntities,
-          chatHistory: prev.chatHistory.map(m => m.id === messageId ? { ...m, proposedEntities: m.proposedEntities?.filter(e => e.name !== entityDraft.name) } : m)
-        };
-      } else {
-        // Create new entity
-        const newEntity: Entity = { 
-          id: Math.random().toString(36).substr(2, 9), 
-          userId: user?.uid || 'anonymous', 
-          name: entityDraft.name || 'Unknown', 
-          type: entityDraft.type || EntityType.PERSON, 
-          historyTags: entityDraft.details ? [entityDraft.details] : [] 
-        };
-        return { 
-          ...prev, 
-          entities: [...prev.entities, newEntity], 
-          chatHistory: prev.chatHistory.map(m => m.id === messageId ? { ...m, proposedEntities: m.proposedEntities?.filter(e => e.name !== entityDraft.name) } : m) 
-        };
-      }
     });
   };
 
@@ -263,8 +313,20 @@ export function useLifeStory() {
   const editMemory = (id: string, updates: Partial<Memory>) => setStory(prev => ({ ...prev, memories: prev.memories.map(m => m.id === id ? { ...m, ...updates } : m) }));
   
   return { 
-    user, login, logout, story, updateProfile, processMemoryFromInput, handleMediaUpload, 
-    confirmPendingMemory, confirmDraftMemory, confirmProposedEntity, deleteMemory, editMemory, 
+    user, 
+    authLoading, 
+    login, 
+    logout, 
+    story, 
+    updateProfile, 
+    processMemoryFromInput, 
+    requestNudge, 
+    handleMediaUpload, 
+    confirmPendingMemory, 
+    confirmDraftMemory, 
+    confirmProposedEntity, 
+    deleteMemory, 
+    editMemory, 
     currentInvestigation 
   };
 }

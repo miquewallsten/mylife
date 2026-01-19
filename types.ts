@@ -1,5 +1,4 @@
 
-
 export enum EntityType {
   PERSON = 'PERSON',
   PLACE = 'PLACE',
@@ -22,12 +21,12 @@ export interface Entity {
   birthDate?: string;
   deathDate?: string;
   birthPlace?: string;
-  historyTags: string[];
-  narrativeHistory?: string;
+  historyTags: string[]; // These are the "Facts" we've collected
+  narrativeHistory?: string; // AI Synthesized summary
 }
 
 export interface ProposedEntity extends Partial<Entity> {
-  details?: string;
+  details?: string; // Synthesized biographical detail
 }
 
 export interface Memory {
@@ -40,17 +39,21 @@ export interface Memory {
   latLng?: { lat: number; lng: number };
   address?: string;
   confidenceScore: number;
-  entityIds: string[];
-  eraIds: string[]; // Changed to support multiple overlapping eras
+  entityIds: string[]; // Explicitly link to People/Places
+  eraIds: string[];
   sentiment: 'positive' | 'neutral' | 'high-stakes' | 'nostalgic';
   mediaUrl?: string;
   mediaType?: 'image' | 'pdf' | 'audio';
-  eventAnchor?: string; 
+  historicalContext?: string; // AI generated context for the era
 }
 
 export interface PendingMemory {
   id: string;
-  suggestedData: Partial<Memory>;
+  suggestedData: Partial<Memory> & {
+    suggestedYear?: string;
+    suggestedLocation?: string;
+    biographerCuriosity?: string;
+  };
   mediaUrl: string;
   mediaType: 'image' | 'pdf' | 'audio';
   analysis: string;
@@ -63,9 +66,7 @@ export interface DraftMemory {
   latLng?: { lat: number; lng: number };
   address?: string;
   sentiment: 'positive' | 'neutral' | 'high-stakes' | 'nostalgic';
-  associatedEntities?: Partial<Entity>[];
-  suggestedEventAnchor?: string;
-  suggestedEraCategories?: EraCategory[];
+  associatedEntities?: ProposedEntity[];
 }
 
 export interface ChatMessage {
@@ -100,6 +101,12 @@ export interface UserProfile {
   onboarded: boolean;
 }
 
+export interface LegacyInsight {
+  theme: string;
+  description: string;
+  relatedMemories: string[];
+}
+
 export interface LifeStory {
   profile: UserProfile | null;
   memories: Memory[];
@@ -108,4 +115,5 @@ export interface LifeStory {
   eras: Era[];
   chatHistory: ChatMessage[];
   isPremium: boolean;
+  legacyInsights: LegacyInsight[];
 }

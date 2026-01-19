@@ -1,26 +1,44 @@
-
 # MyLife Master Technical Specification
 
 ## 1. Logic Pillars
-### The Curious Interviewer (Core Shift)
-- **Logic:** The AI is forbidden from writing the user's narrative. It must act as an interlocutor.
-- **Goal:** Pull sensory, emotional, and humorous details from the user via evocative questioning.
-- **Verification:** Research (Wimbledon '17, etc.) is used to generate specific "Memory Nudges" (e.g., "I see the final was a scorcher—did you have enough sunscreen or just enough Pimms?").
+### Multi-Event Parsing (The Splitter Rule)
+- **Logic:** The AI must unstack dense user narratives. 
+- **Example:** "I was married in 2002 and divorced in 2010" -> Create Milestone A (Marriage 2002), Milestone B (Divorce 2010), and Nudge about the 8 years in between.
 
-### Entity Persistence
-- **Fact-Store:** Tracks people and places to cross-reference stories (e.g., "Dad" or "Wimbledon").
+### Entity Persistence (The Fact-Store)
+- **Fact-Store:** A relational database for People (e.g., Godfather Andrew) and Places (e.g., Madeira).
+- **Behavior:** Entities are "Remembered Forever." Future prompts use these entities to create continuity (e.g., "Would Andrew have been at that wedding too?").
 
-### Historical Grounding
-- **Function:** Triangulate precise dates (YYYY-MM) and environmental context (weather, winners, news) to fuel the Interviewer's questions.
+### Historical Grounding (The Nudge Engine)
+- **Function:** Use Google Search/Grounding to verify dates and provide "Memory Triggers" (e.g., "Star Wars came out that summer—did you see it at the cinema?").
 
-## 2. Relational Architecture
-- **Memories:** `{ id, narrative (USER VOICE), sortDate, confidenceScore, entityIds[], eraId, sentiment }`
+## 2. Relational Database Schema (Firestore Ready)
+### `memories`
+- `id`: UUID
+- `narrative`: Encrypted String (AES-GCM)
+- `sortDate`: ISO String
+- `confidenceScore`: Float
+- `entityIds`: Array of Entity UUIDs
+- `eraIds`: Array of Era UUIDs
+- `sentiment`: 'positive' | 'neutral' | 'high-stakes' | 'nostalgic'
 
-## 3. UI/UX Guardrails
-- **Philosophy:** "Voice is King." The user's original words are preserved in the Life Book.
-- **Visuals:** High contrast, serif typography for the "Book" feel, glassmorphism for the "Digital Desk" feel.
-- **Demographic:** 40–80+ years old.
+### `entities`
+- `name`: String
+- `type`: 'Person' | 'Place' | 'Object'
+- `relationship`: String (e.g., 'Father')
+- `historyTags`: Array of biographical facts.
 
-## 4. Guardrails
-- **Anti-AI Speak:** No "I have generated a story for you." Instead: "This sounds incredible. Tell me about the..."
-- **No Assumptions:** Never invent facts. Only ask questions based on verified history.
+### `eras`
+- `label`: String (e.g., 'The Oracle Years')
+- `start`: Year
+- `end`: Year | 'present'
+- `colorTheme`: String (mapped to EraCategory)
+
+## 3. DOs & DON’Ts
+- **DO** prioritize sensory details (smells, sounds, feelings).
+- **DO** use 'Example-Based Reasoning' for parsing.
+- **DON'T** use corporate jargon (no 'KPIs', 'Managed', 'Responsibilities').
+- **DON'T** ignore trauma; acknowledge high-stakes events with empathetic "High-Stakes" sentiment flagging.
+
+## 4. Security (Heirloom Encryption)
+- All personal narratives are encrypted on the client-side before storage using the WebCrypto API. MyLife staff cannot read your stories.

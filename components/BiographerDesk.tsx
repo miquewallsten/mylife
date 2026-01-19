@@ -1,6 +1,4 @@
 
-
-
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChatMessage, PendingMemory, DraftMemory, Entity, ProposedEntity } from '../types';
@@ -9,6 +7,7 @@ interface BiographerDeskProps {
   chatHistory: ChatMessage[];
   pendingMemories: PendingMemory[];
   onSendMessage: (text: string) => void;
+  onRequestNudge: () => void;
   onUploadMedia: (file: File) => void;
   onConfirmPending: (id: string) => void;
   onConfirmDraft: (messageId: string, draft: DraftMemory) => void;
@@ -21,6 +20,7 @@ export const BiographerDesk: React.FC<BiographerDeskProps> = ({
   chatHistory, 
   pendingMemories,
   onSendMessage, 
+  onRequestNudge,
   onUploadMedia,
   onConfirmPending,
   onConfirmDraft,
@@ -46,113 +46,73 @@ export const BiographerDesk: React.FC<BiographerDeskProps> = ({
   };
 
   return (
-    <div className="h-full flex flex-col bg-white border-l border-slate-200 shadow-sm overflow-hidden font-serif">
-      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-white z-10">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 bg-slate-900 rounded-lg flex items-center justify-center text-white text-[10px] font-black uppercase font-sans">S</div>
+    <div className="h-full flex flex-col bg-white border-l border-slate-200 shadow-sm overflow-hidden font-serif selection:bg-slate-200">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white z-10">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white text-xs font-black uppercase font-sans shadow-lg">B</div>
           <div>
-            <h3 className="text-[11px] font-black text-slate-900 tracking-tight uppercase leading-none font-sans">The Study</h3>
-            <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest block mt-1 truncate max-w-[140px] font-sans">
-              {currentInvestigation || 'A friend is listening'}
+            <h3 className="text-sm font-black text-slate-900 tracking-tight uppercase leading-none font-sans">The Study</h3>
+            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] block mt-1 truncate max-w-[140px] font-sans">
+              {currentInvestigation || 'Ready for a story'}
             </span>
           </div>
         </div>
-        <button 
-          onClick={() => onSendMessage("I'm ready to talk about something else.")} 
-          className="px-2 py-1 border border-slate-200 rounded-md text-[8px] font-black uppercase tracking-widest text-slate-400 hover:bg-slate-900 hover:text-white transition-all font-sans"
-        >
-          New Topic
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={onRequestNudge}
+            disabled={isLoading}
+            className="px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg text-[9px] font-black uppercase tracking-widest text-amber-700 hover:bg-amber-100 transition-all font-sans disabled:opacity-50 flex items-center gap-2"
+          >
+            Inspire Me
+          </button>
+        </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-4 hide-scrollbar bg-[#FDFDFD]">
-        <AnimatePresence>
-          {pendingMemories.map((pm) => (
-            <motion.div key={pm.id} className="w-full bg-white rounded-xl border-2 border-teal-500 p-3 shadow-md mb-2">
-              <div className="flex items-center gap-2 mb-2">
-                 <div className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
-                 <span className="text-[8px] font-black uppercase tracking-widest text-teal-600 font-sans">Adding a piece...</span>
-              </div>
-              <div className="text-[11px] font-bold text-slate-900 mb-2 font-serif italic">"{pm.suggestedData.narrative}"</div>
-              <button onClick={() => onConfirmPending(pm.id)} className="w-full py-2 bg-teal-600 text-white rounded-lg text-[8px] font-black uppercase tracking-widest font-sans shadow-lg shadow-teal-600/20">Keep this</button>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-
+      {/* Chat History */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-6 hide-scrollbar bg-[#FAFAFA]">
         <AnimatePresence initial={false}>
           {chatHistory.map((msg) => (
-            <motion.div key={msg.id} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}>
-              <div className={`max-w-[95%] px-3 py-2.5 rounded-2xl text-[13px] leading-relaxed shadow-sm ${msg.role === 'user' ? 'bg-slate-900 text-white rounded-tr-none font-medium font-sans' : 'bg-slate-50 text-slate-700 rounded-tl-none border border-slate-100 italic'}`}>
+            <motion.div key={msg.id} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-2`}>
+              <div className={`max-w-[92%] px-4 py-3 rounded-2xl text-[14px] leading-relaxed shadow-sm ${msg.role === 'user' ? 'bg-slate-900 text-white rounded-tr-none font-sans font-medium' : 'bg-white text-slate-700 rounded-tl-none border border-slate-100 italic'}`}>
                 {msg.text}
               </div>
 
-              {msg.sources && msg.sources.length > 0 && (
-                <div className="flex flex-col gap-2 mt-1 w-full items-start">
-                  {msg.sources.map((source, idx) => (
-                    <a 
-                      key={`${msg.id}-src-${idx}`}
-                      href={source.uri} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all font-sans shadow-sm border ${
-                        source.uri.includes('google.com/maps') 
-                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100' 
-                          : 'bg-teal-50 border-teal-100 text-teal-700 hover:bg-teal-100'
-                      }`}
-                    >
-                      {source.uri.includes('google.com/maps') ? (
-                        <>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                          Pinpoint: {source.title}
-                        </>
-                      ) : (
-                        <>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                          {source.title}
-                        </>
-                      )}
-                    </a>
-                  ))}
-                </div>
-              )}
-
-              {msg.proposedEntities && msg.proposedEntities.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-1">
-                  {msg.proposedEntities.map((entity, idx) => (
-                    <button 
-                      key={`${msg.id}-ent-${idx}`}
-                      onClick={() => onConfirmEntity(msg.id, entity)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 border border-indigo-100 rounded-full text-[9px] font-black text-indigo-700 uppercase tracking-widest hover:bg-indigo-100 transition-all font-sans shadow-sm"
-                    >
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                      {/* Fixed: details is now recognized via ProposedEntity type */}
-                      {entity.details ? `Add Fact to ${entity.name}` : `Remember ${entity.name}`}
-                    </button>
-                  ))}
-                </div>
-              )}
-
+              {/* Proposed Memories with Deductive Reasoning */}
               {msg.proposals && msg.proposals.length > 0 && (
-                <div className="w-full space-y-2 mt-1">
+                <div className="w-full space-y-3 mt-2">
                   {msg.proposals.map((proposal, idx) => (
                     <motion.div 
                       key={`${msg.id}-prop-${idx}`} 
-                      className="w-full max-w-[90%] bg-white rounded-2xl border-2 border-slate-900 p-4 shadow-xl"
+                      initial={{ scale: 0.95, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className="w-full max-w-[95%] bg-white rounded-3xl border-2 border-slate-900 p-5 shadow-2xl relative overflow-hidden"
                     >
-                      <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center justify-between mb-4 relative z-10">
                         <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full bg-slate-900 animate-pulse" />
-                          <span className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-900 font-sans">A story is emerging...</span>
+                          <div className="w-2.5 h-2.5 rounded-full bg-slate-900 animate-pulse" />
+                          <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-900 font-sans">Milestone Proposal</span>
                         </div>
-                        <span className="text-[9px] font-black text-slate-400 font-sans">{proposal.sortDate}</span>
+                        <span className="text-[10px] font-black text-slate-400 font-sans bg-slate-50 px-2 py-1 rounded-lg">{proposal.sortDate}</span>
+                      </div>
+
+                      {/* Reasoning Badge */}
+                      {(proposal as any).reasoning && (
+                        <div className="mb-4 p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-[10px] text-indigo-700 italic font-sans flex items-start gap-2">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="shrink-0 mt-0.5"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                          <span>Biographer's Deduction: {(proposal as any).reasoning}</span>
+                        </div>
+                      )}
+                      
+                      <div className="text-[15px] font-medium text-slate-900 mb-6 leading-relaxed font-serif bg-slate-50/50 p-4 rounded-2xl italic border border-slate-100">
+                        "{proposal.narrative}"
                       </div>
                       
-                      <div className="text-[14px] font-medium text-slate-900 mb-5 leading-relaxed font-serif bg-slate-50 p-3 rounded-xl italic">"{proposal.narrative}"</div>
                       <button 
                         onClick={() => onConfirmDraft(msg.id, proposal)} 
-                        className="w-full py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all font-sans shadow-lg shadow-slate-900/20"
+                        className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] hover:bg-slate-800 transition-all font-sans"
                       >
-                        Keep this story
+                        Commit to Timeline
                       </button>
                     </motion.div>
                   ))}
@@ -160,12 +120,19 @@ export const BiographerDesk: React.FC<BiographerDeskProps> = ({
               )}
             </motion.div>
           ))}
-          {isLoading && <div className="flex justify-start"><div className="bg-slate-50 px-3 py-1.5 rounded-full animate-pulse text-[10px] text-slate-400 font-sans uppercase font-black">Thinking...</div></div>}
+          {isLoading && (
+            <div className="flex justify-start">
+              <div className="bg-slate-100 px-4 py-2 rounded-full animate-pulse text-[10px] text-slate-400 font-sans uppercase font-black">
+                Deducing the context...
+              </div>
+            </div>
+          )}
         </AnimatePresence>
       </div>
 
-      <div className="p-4 bg-white border-t border-slate-100">
-        <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex items-center gap-2">
+      {/* Input Area */}
+      <div className="p-6 bg-white border-t border-slate-100">
+        <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex items-center gap-3">
           <input 
             type="file" 
             ref={fileInputRef} 
@@ -173,21 +140,24 @@ export const BiographerDesk: React.FC<BiographerDeskProps> = ({
             accept="image/*,application/pdf,audio/*"
             onChange={(e) => e.target.files?.[0] && onUploadMedia(e.target.files[0])}
           />
-          <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 text-slate-300 hover:text-slate-900 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.51a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+          <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-slate-300 hover:text-slate-900 transition-all">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.51a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          
           <div className="flex-1 relative">
             <input 
-              className="w-full bg-slate-50 rounded-2xl py-2.5 px-4 pr-10 text-[13px] outline-none border border-slate-100 italic font-sans focus:bg-white focus:border-slate-300 transition-all" 
-              placeholder="Talk to me..." 
+              className="w-full bg-slate-50 rounded-[1.5rem] py-3.5 px-6 text-[14px] outline-none border border-slate-100 italic font-sans focus:bg-white focus:border-slate-300 transition-all" 
+              placeholder="Tell me a crumb of your story..." 
               value={inputText} 
               onChange={e => setInputText(e.target.value)} 
+              disabled={isLoading}
             />
             <button 
-              type="button" 
-              onClick={handleSubmit}
+              type="submit" 
               disabled={isLoading || !inputText.trim()} 
-              className="absolute right-1.5 top-1.5 w-8 h-8 bg-slate-900 text-white rounded-xl flex items-center justify-center disabled:opacity-5 active:scale-95 transition-all shadow-sm"
+              className="absolute right-2 top-2 w-10 h-10 bg-slate-900 text-white rounded-2xl flex items-center justify-center disabled:opacity-20"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
             </button>
           </div>
         </form>
