@@ -1,0 +1,9 @@
+{
+  "name": "Copy of MyLife: Your Digital Biographer",
+  "description": "A proactive memory ingestion engine for the 40-80+ demographic to capture and synthesize life stories into a professional Life Book.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera",
+    "geolocation"
+  ]
+}
