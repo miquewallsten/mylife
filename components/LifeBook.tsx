@@ -1,8 +1,8 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LifeStory, Era, Memory, Entity, LegacyInsight } from '../types';
-import { synthesizeEraNarrative, answerLegacyQuestion, generateCharacterPortrait, synthesizeLegacyInsights } from '../services/biographer';
+import { LifeStory, Era, Memory, Entity, LegacyInsight } from '../types.ts';
+import { synthesizeEraNarrative, answerLegacyQuestion, generateCharacterPortrait, synthesizeLegacyInsights } from '../services/biographer.ts';
 
 interface LifeBookProps {
   story: LifeStory;
@@ -149,7 +149,6 @@ export const LifeBook: React.FC<LifeBookProps> = ({ story, onClose }) => {
                     </div>
 
                     <div className="grid grid-cols-1 gap-12 pt-12">
-                      {/* Fix: Check for 'image' type attachments on memory instead of using non-existent 'mediaUrl' */}
                       {eraMemories.filter(m => m.attachments?.some(a => a.type === 'image')).map(m => {
                         const imageAtt = m.attachments?.find(a => a.type === 'image');
                         if (!imageAtt) return null;

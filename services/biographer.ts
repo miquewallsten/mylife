@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { Memory, Entity, EntityType, LifeStory, Era, LegacyInsight } from "../types";
+import { Memory, Entity, EntityType, LifeStory, Era, LegacyInsight } from "../types.ts";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 

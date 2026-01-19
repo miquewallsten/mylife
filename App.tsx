@@ -1,13 +1,13 @@
 
 import React, { useState } from 'react';
-import { OnboardingFlow } from './components/OnboardingFlow';
-import { Timeline } from './components/Timeline';
-import { BiographerDesk } from './components/BiographerDesk';
-import { LifeBook } from './components/LifeBook';
-import { NeuralMap } from './components/NeuralMap';
-import { Dashboard } from './components/Dashboard';
-import { Auth } from './components/Auth';
-import { useLifeStory } from './hooks/useLifeStory';
+import { OnboardingFlow } from './components/OnboardingFlow.tsx';
+import { Timeline } from './components/Timeline.tsx';
+import { BiographerDesk } from './components/BiographerDesk.tsx';
+import { LifeBook } from './components/LifeBook.tsx';
+import { NeuralMap } from './components/NeuralMap.tsx';
+import { Dashboard } from './components/Dashboard.tsx';
+import { Auth } from './components/Auth.tsx';
+import { useLifeStory } from './hooks/useLifeStory.ts';
 import { AnimatePresence, motion } from 'framer-motion';
 
 export default function App() {

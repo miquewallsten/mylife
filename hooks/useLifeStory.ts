@@ -1,23 +1,15 @@
 
 import { useState, useEffect, useMemo } from 'react';
-import { LifeStory, Memory, Entity, Era, UserProfile, ChatMessage, Attachment } from '../types';
-import { INITIAL_LIFE_STORY } from '../constants';
-import { ingestLifeThread } from '../services/biographer';
-import { VaultDB, watchAuthState, loginWithGoogle, loginWithApple, loginWithPasscode, logoutUser } from '../services/db';
+import { LifeStory, Memory, Entity, Era, UserProfile, ChatMessage, Attachment } from '../types.ts';
+import { INITIAL_LIFE_STORY } from '../constants.tsx';
+import { ingestLifeThread } from '../services/biographer.ts';
+import { VaultDB, watchAuthState, loginWithGoogle, loginWithApple, loginWithPasscode, logoutUser } from '../services/db.ts';
 
 export function useLifeStory() {
   const [user, setUser] = useState<UserProfile | null>(() => {
     const localUser = localStorage.getItem('mylife_active_user');
     if (localUser) {
-      try {
-        const parsed = JSON.parse(localUser);
-        const savedProfileStr = localStorage.getItem(`mylife_profile_${parsed.uid}`);
-        if (savedProfileStr) {
-          const profile = JSON.parse(savedProfileStr);
-          return { ...parsed, ...profile };
-        }
-        return parsed;
-      } catch (e) { return null; }
+      try { return JSON.parse(localUser); } catch (e) { return null; }
     }
     return null;
   });
@@ -89,13 +81,13 @@ export function useLifeStory() {
       }
     }
     loadData();
-  }, [user?.uid, vault]);
+  }, [user?.uid, !!vault]);
 
   useEffect(() => {
     if (user && vault && story.profile?.onboarded) {
       vault.syncStory(story);
     }
-  }, [story, user?.uid, vault]);
+  }, [story, user?.uid, !!vault]);
 
   const login = async (method: 'google' | 'apple' | 'passcode' | 'email', val?: string) => {
     setAuthError(null);
@@ -108,21 +100,6 @@ export function useLifeStory() {
     }
   };
 
-  const fileToBase64 = (url: string): Promise<string> => {
-    return new Promise((resolve) => {
-      if (!url.startsWith('data:')) return resolve('');
-      const base64 = url.split(',')[1];
-      resolve(base64);
-    });
-  };
-
-  const setTone = (tone: 'concise' | 'elaborate') => {
-    if (!user) return;
-    const updatedProfile = { ...story.profile, preferredTone: tone } as UserProfile;
-    setStory(prev => ({ ...prev, profile: updatedProfile }));
-    localStorage.setItem(`mylife_profile_${user.uid}`, JSON.stringify(updatedProfile));
-  };
-
   const processMemoryFromInput = async (input: string, attachments?: Attachment[]) => {
     if (!user || !story.profile) return;
     setIsProcessing(true);
@@ -131,24 +108,11 @@ export function useLifeStory() {
     setStory(prev => ({ ...prev, chatHistory: [...prev.chatHistory, userMsg] }));
 
     try {
-      const imageParts = [];
-      if (attachments) {
-        for (const att of attachments) {
-          if (att.type === 'image') {
-            const base64 = await fileToBase64(att.url);
-            if (base64) imageParts.push({ data: base64, mimeType: 'image/jpeg' });
-          }
-        }
-      }
-
       const result = await ingestLifeThread(input, { 
         userName: story.profile.displayName || 'Friend', 
         existingStory: story,
-        images: imageParts,
         tone: story.profile.preferredTone
       });
-
-      if (!result) throw new Error("Intelligence Engine Delay.");
 
       const bioMsg: ChatMessage = { id: crypto.randomUUID(), role: 'biographer', text: result.biographerResponse, timestamp: Date.now() };
       
@@ -183,24 +147,10 @@ export function useLifeStory() {
         result.extractedEntities.forEach((extracted: any, index: number) => {
           const ne = newEntities[index];
           const exists = updatedEntities.find(ent => ent.name.toLowerCase() === ne.name.toLowerCase());
-          if (exists) {
-            exists.metadata = { ...exists.metadata, ...ne.metadata };
-            if (ne.relationship) exists.relationship = ne.relationship;
-          } else {
-            updatedEntities.push(ne);
-          }
+          if (!exists) updatedEntities.push(ne);
         });
 
-        const finalMemories = [...prev.memories, ...newMemories].map(m => {
-          const linkedEntityIds = updatedEntities.filter(e => 
-            m.narrative.toLowerCase().includes(e.name.toLowerCase()) || 
-            m.originalInput.toLowerCase().includes(e.name.toLowerCase())
-          ).map(e => e.id);
-          return { 
-            ...m, 
-            entityIds: Array.from(new Set([...m.entityIds, ...linkedEntityIds]))
-          };
-        });
+        const finalMemories = [...prev.memories, ...newMemories];
 
         return {
           ...prev,
@@ -212,7 +162,7 @@ export function useLifeStory() {
 
       setCurrentInvestigation(result.topic);
     } catch (err) {
-      console.error(err);
+      console.error("Ingestion failed:", err);
     } finally {
       setIsProcessing(false);
     }
@@ -224,20 +174,11 @@ export function useLifeStory() {
     const updatedUser: UserProfile = { ...user, displayName: name, birthYear: year, birthCity: location, onboarded: true, preferredTone: 'concise' };
     const newEras: Era[] = [{ id: crypto.randomUUID(), label: 'Early Years', category: 'personal', startYear: year, endYear: year + 18 }];
     
-    localStorage.setItem(`mylife_profile_${user.uid}`, JSON.stringify(updatedUser));
-    localStorage.setItem('mylife_active_user', JSON.stringify(updatedUser));
-    
     setUser(updatedUser);
     setStory(prev => ({ 
       ...prev, 
       profile: updatedUser, 
-      eras: newEras,
-      chatHistory: prev.chatHistory.length <= 1 ? [{
-        id: 'init',
-        role: 'biographer',
-        text: `Welcome, ${name}. I've set your origin in ${location}. If you'd like, you could share a bit about how your heritage shaped your own journey?`,
-        timestamp: Date.now()
-      }] : prev.chatHistory
+      eras: newEras
     }));
   };
 
@@ -245,6 +186,7 @@ export function useLifeStory() {
     user, authLoading, dataLoading, authError, story, isProcessing, currentInvestigation, processMemoryFromInput, 
     deleteMemory: (id: string) => setStory(prev => ({ ...prev, memories: prev.memories.filter(m => m.id !== id) })),
     editMemory: (id: string, updates: Partial<Memory>) => setStory(prev => ({ ...prev, memories: prev.memories.map(m => m.id === id ? { ...m, ...updates } : m) })),
-    updateProfile, setTone, login, logout: logoutUser 
+    updateProfile, setTone: (tone: 'concise' | 'elaborate') => setStory(prev => prev.profile ? ({ ...prev, profile: { ...prev.profile, preferredTone: tone } }) : prev), 
+    login, logout: logoutUser 
   };
 }

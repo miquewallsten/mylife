@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Memory, Entity, LifeStory, EntityType } from '../types';
+import { Memory, Entity, LifeStory, EntityType } from '../types.ts';
 
 interface NeuralMapProps {
   story: LifeStory;

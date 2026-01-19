@@ -1,8 +1,8 @@
 
 import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { LifeStory, EntityType } from '../types';
-import { BiographerDesk } from './BiographerDesk';
+import { LifeStory, EntityType } from '../types.ts';
+import { BiographerDesk } from './BiographerDesk.tsx';
 
 interface DashboardProps {
   story: LifeStory;

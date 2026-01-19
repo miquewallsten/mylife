@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Memory, Era } from '../types';
+import { Memory, Era } from '../types.ts';
 
 interface TimelineProps {
   eras: Era[];

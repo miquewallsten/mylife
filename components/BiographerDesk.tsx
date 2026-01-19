@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChatMessage, Attachment } from '../types';
+import { ChatMessage, Attachment } from '../types.ts';
 
 interface BiographerDeskProps {
   chatHistory: ChatMessage[];
