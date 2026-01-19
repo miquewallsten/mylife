@@ -16,11 +16,13 @@ export const Auth: React.FC<AuthProps> = ({ onSignIn, error }) => {
     e?.preventDefault();
     if (inputValue.trim()) {
       setIsConnecting(true);
-      // Small delay to show the "Opening Vault" state
-      setTimeout(() => {
-        onSignIn(mode === 'email' ? 'email' : 'passcode', inputValue);
-      }, 500);
+      onSignIn(mode === 'email' ? 'email' : 'passcode', inputValue);
     }
+  };
+
+  const handleSocialSignIn = (provider: 'google' | 'apple') => {
+    setIsConnecting(true);
+    onSignIn(provider);
   };
 
   return (
@@ -36,7 +38,7 @@ export const Auth: React.FC<AuthProps> = ({ onSignIn, error }) => {
         
         <h1 className="text-4xl font-serif font-black text-slate-900 mb-4 tracking-tight">Your Private Vault</h1>
         <p className="text-slate-500 text-lg mb-12 leading-relaxed">
-          The sanctuary for your life's greatest stories. Secure, seamless, and forever.
+          Unlock your sanctuary. Everything is secured with your unique identity hash.
         </p>
 
         {error && (
@@ -85,16 +87,24 @@ export const Auth: React.FC<AuthProps> = ({ onSignIn, error }) => {
                   <div className="w-full border-t border-slate-100"></div>
                 </div>
                 <div className="relative flex justify-center text-[10px] font-black uppercase tracking-[0.4em]">
-                  <span className="bg-white px-4 text-slate-300">Cloud Sync (Experimental)</span>
+                  <span className="bg-white px-4 text-slate-300">Social Secure Access</span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 opacity-40">
-                <button disabled className="w-full py-4 bg-white border-2 border-slate-100 text-slate-400 rounded-2xl text-[13px] font-bold flex items-center justify-center gap-3 cursor-not-allowed">
-                  Apple Sign-In (Preview Restricted)
+              <div className="grid grid-cols-1 gap-4">
+                <button 
+                  onClick={() => handleSocialSignIn('apple')}
+                  className="w-full py-4 bg-white border-2 border-slate-100 text-slate-900 rounded-2xl text-[13px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-slate-50 transition-all"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 20.28c-.96.78-1.95 1.55-3.04 1.57-1.07.02-1.42-.64-2.65-.64-1.23 0-1.63.62-2.63.66-1.07.03-2.2-.87-3.19-1.7-2.02-1.71-3.56-4.83-3.56-7.75 0-4.63 2.91-7.07 5.67-7.07 1.48 0 2.87.97 3.77.97.9 0 2.45-1.15 4.19-1.15 1.74 0 3.39.87 4.26 2.06-3.55 2.13-2.98 6.78.53 8.24-.81 2.03-1.89 4.02-3.35 5.81zM12.03 5.07c-.12-2.18 1.63-4.08 3.55-4.32.22 2.37-2.05 4.47-3.55 4.32z"/></svg>
+                  Apple ID
                 </button>
-                <button disabled className="w-full py-4 bg-white border-2 border-slate-100 text-slate-400 rounded-2xl text-[13px] font-bold flex items-center justify-center gap-3 cursor-not-allowed">
-                  Google Sign-In (Preview Restricted)
+                <button 
+                  onClick={() => handleSocialSignIn('google')}
+                  className="w-full py-4 bg-white border-2 border-slate-100 text-slate-900 rounded-2xl text-[13px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-slate-50 transition-all"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.66l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                  Google Account
                 </button>
               </div>
             </motion.div>
@@ -109,58 +119,41 @@ export const Auth: React.FC<AuthProps> = ({ onSignIn, error }) => {
             >
               <div className="text-left">
                 <h3 className="text-2xl font-serif font-black text-slate-900 mb-2 capitalize">
-                  {mode === 'email' ? 'Enter Email' : 'Set Your Secret Key'}
+                  {mode === 'email' ? 'Enter Email' : 'Secret Phrase'}
                 </h3>
-                <p className="text-[13px] text-slate-400 font-sans italic leading-relaxed">
-                  {mode === 'email' 
-                    ? "Enter your email. Your data stays encrypted with your unique identity hash." 
-                    : "Choose a secret phrase. This generates your 100% private identity."}
+                <p className="text-[13px] text-slate-400 font-sans italic">
+                  {mode === 'email' ? "We'll send a secure link." : "Your phrase generates your 100% private vault key."}
                 </p>
               </div>
 
               <input 
                 autoFocus
                 type={mode === 'email' ? 'email' : 'password'}
-                placeholder={mode === 'email' ? 'your@email.com' : 'Your Secret Phrase'}
                 className="w-full py-6 px-8 bg-slate-50 border-2 border-slate-900 rounded-[2rem] text-2xl font-black focus:bg-white outline-none transition-all text-center placeholder:text-slate-200 shadow-inner"
                 value={inputValue}
                 onChange={e => setInputValue(e.target.value)}
                 disabled={isConnecting}
+                placeholder="••••••••"
               />
 
               <button 
                 type="submit"
                 disabled={!inputValue.trim() || isConnecting}
-                className="w-full py-6 bg-slate-900 text-white rounded-[2rem] text-xl font-bold hover:bg-slate-800 transition-all shadow-2xl disabled:opacity-50 flex items-center justify-center gap-3"
+                className="w-full py-6 bg-slate-900 text-white rounded-[2rem] text-xl font-bold hover:bg-slate-800 shadow-2xl disabled:opacity-50 flex items-center justify-center gap-3"
               >
-                {isConnecting ? (
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Opening Vault...
-                  </div>
-                ) : (
-                  <>
-                    Open My Vault
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-                  </>
-                )}
+                {isConnecting ? "Synchronizing Vault..." : "Open My Vault"}
               </button>
               
               <button 
                 type="button"
                 onClick={() => { setMode('selection'); setInputValue(''); }}
-                className="text-[11px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-900 transition-all mt-4"
+                className="text-[11px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-900 mt-4"
               >
-                Back to Selection
+                Go Back
               </button>
             </motion.form>
           )}
         </AnimatePresence>
-
-        <p className="mt-12 text-[11px] text-slate-300 font-black uppercase tracking-widest leading-loose">
-          Privacy Policy: Everything is encrypted client-side.<br/>
-          Your secret key never leaves this browser.
-        </p>
       </motion.div>
     </div>
   );
