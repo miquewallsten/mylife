@@ -13,7 +13,8 @@ export function useLifeStory() {
         const parsed = JSON.parse(localUser);
         const savedProfileStr = localStorage.getItem(`mylife_profile_${parsed.uid}`);
         if (savedProfileStr) {
-          return { ...parsed, ...JSON.parse(savedProfileStr) };
+          const profile = JSON.parse(savedProfileStr);
+          return { ...parsed, ...profile };
         }
         return parsed;
       } catch (e) { return null; }
@@ -33,7 +34,6 @@ export function useLifeStory() {
   useEffect(() => {
     const unsub = watchAuthState((authUser) => {
       if (authUser) {
-        // Ensure user state is always synchronized with the most complete profile
         const savedProfileStr = localStorage.getItem(`mylife_profile_${authUser.uid}`);
         const profileData = savedProfileStr ? JSON.parse(savedProfileStr) : null;
         
@@ -48,7 +48,6 @@ export function useLifeStory() {
         };
         
         setUser(finalUser);
-        // Force sync local user to match
         localStorage.setItem('mylife_active_user', JSON.stringify(finalUser));
       } else {
         setUser(null);
@@ -69,7 +68,6 @@ export function useLifeStory() {
           const eras = await vault.getEras();
           const chatStr = localStorage.getItem(`mylife_chat_${user.uid}`);
           
-          // Re-fetch profile to be 100% sure we have the latest
           const savedProfileStr = localStorage.getItem(`mylife_profile_${user.uid}`);
           const profile = savedProfileStr ? JSON.parse(savedProfileStr) : user;
 
