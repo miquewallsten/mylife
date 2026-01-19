@@ -6,7 +6,8 @@ import {
   doc, 
   setDoc, 
   getDoc,
-  updateDoc 
+  updateDoc,
+  enableIndexedDbPersistence
 } from 'firebase/firestore';
 import { 
   getAuth, 
@@ -34,6 +35,8 @@ try {
     app = initializeApp(firebaseConfig);
     db = getFirestore(app);
     auth = getAuth(app);
+    // Offline persistence for better mobile experience
+    enableIndexedDbPersistence(db).catch(() => {});
   }
 } catch (e) {
   console.warn("Firebase restricted. Using Vault mode.");
@@ -45,7 +48,7 @@ let authCallback: ((user: any | null) => void) | null = null;
 
 function handleAuthError(error: any, method: string) {
   console.error("Auth Error:", error);
-  return new Error("Social login is unavailable in this sandbox. Use 'Private Passcode'—it is 100% private and works instantly.");
+  return new Error("Social login is unavailable in this sandbox. Use 'Private Passcode'—it works instantly.");
 }
 
 export async function loginWithGoogle() {
@@ -82,7 +85,7 @@ export async function loginWithPasscode(secret: string, type: 'email' | 'passcod
 
   const uid = `vault_${hashedUid}`;
   
-  // CRITICAL: Hydrate profile from storage immediately to prevent onboarding reset
+  // Hydrate immediately to prevent resets
   const savedProfileStr = localStorage.getItem(`mylife_profile_${uid}`);
   const profileData = savedProfileStr ? JSON.parse(savedProfileStr) : null;
 
@@ -109,11 +112,9 @@ export async function logoutUser() {
 
 export function watchAuthState(callback: (user: any | null) => void) {
   authCallback = callback;
-  
   const local = localStorage.getItem('mylife_active_user');
   if (local) {
     const parsed = JSON.parse(local);
-    // Double check local storage for latest profile updates
     const savedProfileStr = localStorage.getItem(`mylife_profile_${parsed.uid}`);
     if (savedProfileStr) {
       callback({ ...parsed, ...JSON.parse(savedProfileStr) });
@@ -128,7 +129,6 @@ export function watchAuthState(callback: (user: any | null) => void) {
   } else {
     callback(null);
   }
-
   return () => { authCallback = null; };
 }
 
@@ -175,9 +175,8 @@ export class VaultDB {
     if (!this.isCloud) return;
     try {
       const userRef = doc(db, 'users', this.uid);
-      await setDoc(userRef, { lastSync: Date.now() }, { merge: true });
       const collRef = doc(db, 'users', this.uid, 'collections', collectionName);
-      await setDoc(collRef, { data, updatedAt: Date.now() });
+      await setDoc(collRef, { data, updatedAt: Date.now() }, { merge: true });
     } catch (e) {}
   }
 
@@ -199,6 +198,10 @@ export class VaultDB {
     await this.saveEras(story.eras);
     if (story.profile) {
       localStorage.setItem(`mylife_profile_${this.uid}`, JSON.stringify(story.profile));
+      if (this.isCloud) {
+         const userRef = doc(db, 'users', this.uid);
+         await setDoc(userRef, { ...story.profile, lastUpdated: Date.now() }, { merge: true });
+      }
     }
     localStorage.setItem(`mylife_chat_${this.uid}`, JSON.stringify(story.chatHistory));
   }
