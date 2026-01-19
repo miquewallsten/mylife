@@ -149,14 +149,19 @@ export const LifeBook: React.FC<LifeBookProps> = ({ story, onClose }) => {
                     </div>
 
                     <div className="grid grid-cols-1 gap-12 pt-12">
-                      {eraMemories.filter(m => m.mediaUrl).map(m => (
-                        <motion.div key={m.id} initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="space-y-4">
-                          <div className="rounded-[3rem] overflow-hidden shadow-2xl border-[16px] border-white ring-1 ring-stone-200">
-                            <img src={m.mediaUrl} className="w-full h-auto" alt="Artifact" />
-                          </div>
-                          <p className="text-center italic text-stone-400 text-lg">{m.sortDate} — A fragment from the journey</p>
-                        </motion.div>
-                      ))}
+                      {/* Fix: Check for 'image' type attachments on memory instead of using non-existent 'mediaUrl' */}
+                      {eraMemories.filter(m => m.attachments?.some(a => a.type === 'image')).map(m => {
+                        const imageAtt = m.attachments?.find(a => a.type === 'image');
+                        if (!imageAtt) return null;
+                        return (
+                          <motion.div key={m.id} initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="space-y-4">
+                            <div className="rounded-[3rem] overflow-hidden shadow-2xl border-[16px] border-white ring-1 ring-stone-200">
+                              <img src={imageAtt.url} className="w-full h-auto" alt="Artifact" />
+                            </div>
+                            <p className="text-center italic text-stone-400 text-lg">{m.sortDate} — A fragment from the journey</p>
+                          </motion.div>
+                        );
+                      })}
                     </div>
                   </div>
                 </section>

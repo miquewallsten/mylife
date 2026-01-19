@@ -5,31 +5,24 @@ import {
   collection, 
   doc, 
   setDoc, 
-  getDocs, 
-  query, 
-  where, 
-  deleteDoc,
+  getDoc,
   updateDoc 
 } from 'firebase/firestore';
 import { 
   getAuth, 
   signInWithPopup, 
   GoogleAuthProvider, 
+  OAuthProvider,
   signOut, 
   onAuthStateChanged,
-  User as FirebaseUser 
 } from 'firebase/auth';
 import { Memory, Entity, Era, UserProfile, LifeStory } from '../types';
 import { encryptNarrative, decryptNarrative } from './crypto';
 
-// Real Firebase Integration
 const firebaseConfig = {
-  apiKey: process.env.API_KEY,
+  apiKey: process.env.API_KEY, 
   authDomain: "mylife-biographer.firebaseapp.com",
   projectId: "mylife-biographer",
-  storageBucket: "mylife-biographer.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abcdef"
 };
 
 let app: any;
@@ -37,102 +30,176 @@ let db: any;
 let auth: any;
 
 try {
-  app = initializeApp(firebaseConfig);
-  db = getFirestore(app);
-  auth = getAuth(app);
+  if (firebaseConfig.apiKey && firebaseConfig.apiKey.length > 20) {
+    app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    auth = getAuth(app);
+  }
 } catch (e) {
-  console.error("Firebase init failed", e);
+  console.warn("Firebase restricted. Using Vault mode.");
 }
 
 export { auth };
 
+let authCallback: ((user: any | null) => void) | null = null;
+
+function handleAuthError(error: any, method: string) {
+  console.error("Auth Error:", error);
+  return new Error("Social login is unavailable in this sandbox. Use 'Private Passcode'—it is 100% private and works instantly.");
+}
+
 export async function loginWithGoogle() {
-  if (!auth) return;
+  if (!auth) throw new Error("Sandbox mode: Use Passcode.");
   const provider = new GoogleAuthProvider();
-  return signInWithPopup(auth, provider);
+  try {
+    const result = await signInWithPopup(auth, provider);
+    if (authCallback) authCallback(result.user);
+    return result.user;
+  } catch (error: any) {
+    throw handleAuthError(error, "Google");
+  }
+}
+
+export async function loginWithApple() {
+  if (!auth) throw new Error("Sandbox mode: Use Passcode.");
+  const provider = new OAuthProvider('apple.com');
+  try {
+    const result = await signInWithPopup(auth, provider);
+    if (authCallback) authCallback(result.user);
+    return result.user;
+  } catch (error: any) {
+    throw handleAuthError(error, "Apple");
+  }
+}
+
+export async function loginWithPasscode(secret: string, type: 'email' | 'passcode') {
+  const normalized = secret.toLowerCase().trim();
+  const encoder = new TextEncoder();
+  const data = encoder.encode(normalized + "mylife-v4-final-salt");
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashedUid = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 28);
+
+  const uid = `vault_${hashedUid}`;
+  
+  // CRITICAL: Hydrate profile from storage immediately to prevent onboarding reset
+  const savedProfileStr = localStorage.getItem(`mylife_profile_${uid}`);
+  const profileData = savedProfileStr ? JSON.parse(savedProfileStr) : null;
+
+  const mockUser = {
+    uid: uid,
+    email: type === 'email' ? normalized : `private@vault.local`,
+    displayName: profileData?.displayName || (type === 'email' ? normalized.split('@')[0] : "Legacy Keeper"),
+    onboarded: profileData?.onboarded === true,
+    birthYear: profileData?.birthYear || 1974,
+    birthCity: profileData?.birthCity || '',
+    preferredTone: profileData?.preferredTone || 'concise'
+  };
+  
+  localStorage.setItem('mylife_active_user', JSON.stringify(mockUser));
+  if (authCallback) authCallback(mockUser);
+  return mockUser;
 }
 
 export async function logoutUser() {
-  if (!auth) return;
-  return signOut(auth);
+  if (auth) { try { await signOut(auth); } catch (e) {} }
+  localStorage.removeItem('mylife_active_user');
+  if (authCallback) authCallback(null);
 }
 
-export function watchAuthState(callback: (user: FirebaseUser | null) => void) {
-  if (!auth) return () => {};
-  return onAuthStateChanged(auth, callback);
+export function watchAuthState(callback: (user: any | null) => void) {
+  authCallback = callback;
+  
+  const local = localStorage.getItem('mylife_active_user');
+  if (local) {
+    const parsed = JSON.parse(local);
+    // Double check local storage for latest profile updates
+    const savedProfileStr = localStorage.getItem(`mylife_profile_${parsed.uid}`);
+    if (savedProfileStr) {
+      callback({ ...parsed, ...JSON.parse(savedProfileStr) });
+    } else {
+      callback(parsed);
+    }
+  } else if (auth) {
+    onAuthStateChanged(auth, (fbUser) => {
+      if (fbUser) callback(fbUser);
+      else callback(null);
+    });
+  } else {
+    callback(null);
+  }
+
+  return () => { authCallback = null; };
 }
 
 export class VaultDB {
   private uid: string;
+  private isCloud: boolean;
 
   constructor(uid: string) {
     this.uid = uid;
+    this.isCloud = !!db && !uid.startsWith('vault_');
   }
 
-  // Encrypted Memory Storage
   async getMemories(): Promise<Memory[]> {
-    const raw = await this.getCollection<Memory>('memories');
-    // Decrypt on load
-    const decrypted = await Promise.all(raw.map(async m => ({
-      ...m,
-      narrative: await decryptNarrative(m.narrative, this.uid)
-    })));
-    return decrypted;
+    const local = this.getLocal('memories');
+    return await Promise.all(local.map(async (m: any) => {
+      try {
+        const decrypted = await decryptNarrative(m.narrative, this.uid);
+        return { ...m, narrative: decrypted };
+      } catch (e) {
+        return m;
+      }
+    }));
   }
 
   async saveMemories(data: Memory[]) {
-    // Encrypt before save
     const encrypted = await Promise.all(data.map(async m => ({
       ...m,
       narrative: await encryptNarrative(m.narrative, this.uid)
     })));
-    await this.saveCollection('memories', encrypted);
+    this.setLocal('memories', encrypted);
+    if (this.isCloud) await this.syncToCloud('memories', encrypted);
   }
 
-  // Generic Cloud Sync
-  private async getCollection<T>(name: string): Promise<T[]> {
-    if (!db) {
-       const raw = localStorage.getItem(`mylife_v1_${this.uid}_${name}`);
-       return raw ? JSON.parse(raw) : [];
-    }
+  private getLocal(key: string) {
+    const data = localStorage.getItem(`mylife_${this.uid}_${key}`);
+    return data ? JSON.parse(data) : [];
+  }
+
+  private setLocal(key: string, data: any) {
+    localStorage.setItem(`mylife_${this.uid}_${key}`, JSON.stringify(data));
+  }
+
+  private async syncToCloud(collectionName: string, data: any) {
+    if (!this.isCloud) return;
     try {
-      const q = query(collection(db, name), where("userId", "==", this.uid));
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as T));
-    } catch (e) {
-      console.warn(`Firestore fail for ${name}, falling back to local`, e);
-      const raw = localStorage.getItem(`mylife_v1_${this.uid}_${name}`);
-      return raw ? JSON.parse(raw) : [];
-    }
+      const userRef = doc(db, 'users', this.uid);
+      await setDoc(userRef, { lastSync: Date.now() }, { merge: true });
+      const collRef = doc(db, 'users', this.uid, 'collections', collectionName);
+      await setDoc(collRef, { data, updatedAt: Date.now() });
+    } catch (e) {}
   }
 
-  private async saveCollection<T>(name: string, data: T[]) {
-    // Save to Local as cache
-    localStorage.setItem(`mylife_v1_${this.uid}_${name}`, JSON.stringify(data));
-    
-    if (!db) return;
-    
-    // Attempt Firestore Sync
-    try {
-      for (const item of data as any) {
-        await setDoc(doc(db, name, item.id), { ...item, userId: this.uid });
-      }
-    } catch (e) {
-      console.error(`Sync failed for ${name}`, e);
-    }
+  async getEntities(): Promise<Entity[]> { return this.getLocal('entities'); }
+  async saveEntities(data: Entity[]) { 
+    this.setLocal('entities', data); 
+    if (this.isCloud) await this.syncToCloud('entities', data);
   }
 
-  async getEntities(): Promise<Entity[]> { return this.getCollection<Entity>('entities'); }
-  async saveEntities(data: Entity[]) { await this.saveCollection('entities', data); }
-
-  async getEras(): Promise<Era[]> { return this.getCollection<Era>('eras'); }
-  async saveEras(data: Era[]) { await this.saveCollection('eras', data); }
+  async getEras(): Promise<Era[]> { return this.getLocal('eras'); }
+  async saveEras(data: Era[]) { 
+    this.setLocal('eras', data); 
+    if (this.isCloud) await this.syncToCloud('eras', data);
+  }
 
   async syncStory(story: LifeStory) {
     await this.saveMemories(story.memories);
     await this.saveEntities(story.entities);
     await this.saveEras(story.eras);
-    localStorage.setItem(`mylife_profile_${this.uid}`, JSON.stringify(story.profile));
+    if (story.profile) {
+      localStorage.setItem(`mylife_profile_${this.uid}`, JSON.stringify(story.profile));
+    }
     localStorage.setItem(`mylife_chat_${this.uid}`, JSON.stringify(story.chatHistory));
   }
 }
